@@ -1,0 +1,273 @@
+local Config = getgenv().AutoFarmConfig or {
+    TargetPlotID = 1,
+    StandPosition = Vector3.new(440.9517517089844, 145.2554168701172, -28.30003929),
+    ActionPosition = Vector3.new(433.0979309082031, 145.35540771484375, -18.096395),
+    FlySpeed = 60,
+    WaterInterval = 10,
+    TotalDuration = 240
+}
+
+-- ==========================================
+-- [ ตั้งค่า Services พื้นฐาน ]
+-- ==========================================
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local TeleportService = game:GetService("TeleportService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+-- ==========================================
+-- 1. สคริปต์กดปุ่มตอนหน้าโหลดเกม
+-- ==========================================
+getgenv().autoPressKey = true
+local stopAfterSeconds = 10
+
+print("✅ เริ่มระบบกดปุ่ม L(K) อัตโนมัติ...")
+task.delay(stopAfterSeconds, function()
+    getgenv().autoPressKey = false
+    print("🛑 สคริปต์ปุ่มกดหยุดทำงานแล้ว (ครบ " .. stopAfterSeconds .. " วินาที)")
+end)
+
+task.spawn(function()
+    while getgenv().autoPressKey do
+        task.wait(1) 
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.K, false, game)
+        task.wait(0.1)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.K, false, game)
+    end
+end)
+
+-- ==========================================
+-- 2. สคริปต์ลบต้นไม้ (รอโหลด 4 วิ)
+-- ==========================================
+task.spawn(function()
+    print("⏳ กำลังรอ 4 วินาทีเพื่อโหลดต้นไม้...")
+    task.wait(4)
+    local gardensFolder = Workspace:FindFirstChild("Gardens")
+    if gardensFolder then
+        for _, plot in pairs(gardensFolder:GetChildren()) do
+            local plantsFolder = plot:FindFirstChild("Plants")
+            if plantsFolder then
+                plantsFolder:ClearAllChildren()
+                print("🗑️ ลบต้นไม้ใน " .. plot.Name .. " เรียบร้อยแล้ว")
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- 3. สคริปต์ Rollback & UI
+-- ==========================================
+local SharedModules = ReplicatedStorage:WaitForChild("SharedModules")
+local Packet = SharedModules:WaitForChild("Packet")
+local RemoteEvent = Packet:WaitForChild("RemoteEvent")
+local ranStatus = false
+
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local Window = Fluent:CreateWindow({
+    Title = "Fluent " .. Fluent.Version,
+    SubTitle = "by dawid",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+}
+
+do
+    local Status = Tabs.Main:AddParagraph({ Title = "Status : Off 🔴", })
+    Tabs.Main:AddButton({
+        Title = "Turn on",
+        Callback = function()
+            if ranStatus then
+                Fluent:Notify({ Title = "Alert", Content = "Rollback is already ON", Duration = 8 })
+            else
+                RemoteEvent:FireServer(buffer.fromstring("6\000\001\255"))
+                ranStatus = true
+                Status:SetTitle("Status : On 🟢")
+            end
+        end
+    })
+    Tabs.Main:AddButton({
+        Title = "Turn off",
+        Callback = function()
+            for i = 1, 3 do RemoteEvent:FireServer(buffer.fromstring("6\000\000")) task.wait() end
+            ranStatus = false
+            Status:SetTitle("Status : Off 🔴")
+        end
+    })
+    Tabs.Main:AddButton({
+        Title = "Rejoin", 
+        Callback = function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end
+    })
+    if not ranStatus then
+        RemoteEvent:FireServer(buffer.fromstring("6\000\001\255"))
+        ranStatus = true
+        Status:SetTitle("Status : On 🟢")
+    end
+end
+
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+InterfaceManager:SetFolder("FluentScriptHub")
+SaveManager:SetFolder("FluentScriptHub/specific-game")
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+Window:SelectTab(1)
+Fluent:Notify({ Title = "Fluent", Content = "The script has been loaded & Rollback is ON.", Duration = 8 })
+SaveManager:LoadAutoloadConfig()
+
+-- ==========================================
+-- 4. สคริปต์วางสปริงเกอร์และรดน้ำ (รอ 12 วินาที)
+-- ==========================================
+task.spawn(function()
+    print("⏳ รอ 12 วินาทีก่อนเริ่มระบบฟาร์ม...")
+    task.wait(12)
+    print("🚀 เริ่มระบบวางสปริงเกอร์และรดน้ำระยะไกล!")
+
+    local TARGET_PLOT_ID = Config.TargetPlotID
+    local STAND_POS = Config.StandPosition -- จุดยืนที่ปลอดภัย (นอกสวน)
+    
+    local Networking = require(SharedModules:WaitForChild("Networking"))
+    local PacketRemote = RemoteEvent
+    local WATERING_EVENT_ID = 67
+    local isFlying = false
+
+    local function equipToolByName(toolName)
+        local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return nil end
+        local containers = { character, LocalPlayer:FindFirstChild("Backpack") }
+        for _, container in ipairs(containers) do
+            if container then
+                for _, item in ipairs(container:GetChildren()) do
+                    if item:IsA("Tool") and (string.find(string.lower(item.Name), string.lower(toolName), 1, true) or string.find(string.lower(tostring(item:GetAttribute("ItemName") or "")), string.lower(toolName), 1, true)) then
+                        if item.Parent ~= character then pcall(function() humanoid:EquipTool(item) end) task.wait(0.1) end
+                        return item
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function hasSprinklerAt(plot, position)
+        local sprinklersFolder = plot and plot:FindFirstChild("Sprinklers")
+        if not sprinklersFolder then return false end
+        for _, child in ipairs(sprinklersFolder:GetChildren()) do
+            local part = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true)
+            if part and (part.Position - position).Magnitude <= 4 then return true end
+        end
+        return false
+    end
+
+    -- 🚀 ฟังก์ชันบินกลับจุดยืน
+    local function flyToPosition(targetPos)
+        if isFlying then return end
+        isFlying = true
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local root = char:WaitForChild("HumanoidRootPart", 5)
+        if not root then isFlying = false return end
+        
+        local distance = (root.Position - targetPos).Magnitude
+        if distance <= 3 then isFlying = false return end 
+        local duration = distance / Config.FlySpeed
+        
+        local bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bodyVelocity.Parent = root
+        
+        local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+        local tween = TweenService:Create(root, tweenInfo, {CFrame = CFrame.new(targetPos)})
+        
+        local conn
+        conn = char:WaitForChild("Humanoid").Died:Connect(function()
+            tween:Cancel()
+            if bodyVelocity then bodyVelocity:Destroy() end
+            if conn then conn:Disconnect() end
+        end)
+        
+        tween:Play()
+        tween.Completed:Wait()
+        
+        if bodyVelocity.Parent then bodyVelocity:Destroy() end
+        if conn then conn:Disconnect() end
+        pcall(function() root.Velocity = Vector3.new(0,0,0) end)
+        isFlying = false
+    end
+
+    -- บินไปจุดยืนปลอดภัยทันที
+    flyToPosition(STAND_POS)
+    task.wait(0.5)
+    
+    local gardens = Workspace:FindFirstChild("Gardens")
+    local plot = gardens and gardens:FindFirstChild("Plot" .. tostring(TARGET_PLOT_ID))
+    
+    -- ลูปกันตาย / กันกระเด็น
+    task.spawn(function()
+        while true do
+            local char = LocalPlayer.Character
+            local humanoid = char and char:FindFirstChild("Humanoid")
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if not char or not humanoid or humanoid.Health <= 0 or not root then
+                LocalPlayer.CharacterAdded:Wait()
+                task.wait(0.5)
+                flyToPosition(STAND_POS)
+            elseif (root.Position - STAND_POS).Magnitude > 8 and not isFlying then
+                flyToPosition(STAND_POS)
+            end
+            task.wait(0.1)
+        end
+    end)
+    
+    print("[Auto Farm] เริ่มทำงาน! รดน้ำระยะไกลจากนอกสวน...")
+    local startTime = os.clock()
+    
+    while (os.clock() - startTime) < Config.TotalDuration do
+        -- เช็คสปริงเกอร์
+        if plot then
+            if not hasSprinklerAt(plot, Config.ActionPosition) then
+                print("[Auto Farm] สปริงเกอร์หาย! กำลังวางใหม่...")
+                local sprinklerTool = equipToolByName("Super Sprinkler")
+                if sprinklerTool then
+                    Networking.Place.PlaceSprinkler:Fire(Config.ActionPosition, "Super Sprinkler", sprinklerTool, TARGET_PLOT_ID)
+                    task.wait(1) 
+                end
+            end
+        end
+
+        -- ยิง RemoteEvent รดน้ำไปที่แปลงโดยตรง
+        local wateringTool = equipToolByName("Super Watering Can")
+        if wateringTool then
+            pcall(function()
+                local toolName = wateringTool.Name
+                local b = buffer.create(15 + #toolName)
+                buffer.writeu16(b, 0, WATERING_EVENT_ID)
+                buffer.writef32(b, 2, Config.ActionPosition.X)
+                buffer.writef32(b, 6, Config.ActionPosition.Y)
+                buffer.writef32(b, 10, Config.ActionPosition.Z)
+                buffer.writeu8(b, 14, #toolName)
+                buffer.writestring(b, 15, toolName)
+                PacketRemote:FireServer(b, { wateringTool })
+            end)
+        end
+        task.wait(Config.WaterInterval)
+    end
+    
+    print("[Auto Farm] ครบเวลาแล้ว! กำลังทำการ Rejoin เซิร์ฟเวอร์ใหม่...")
+    task.wait(1)
+    pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
+end)
