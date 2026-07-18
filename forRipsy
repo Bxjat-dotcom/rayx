@@ -3,13 +3,16 @@ local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
+local UserInputService = game:GetService("UserInputService")
+local VIM = game:GetService("VirtualInputManager")
+
 local Window = Fluent:CreateWindow({
-Title = "Auto Shop & Mail Hub",
-SubTitle = "by ChatGPT",
-TabWidth = 160,
-Size = UDim2.fromOffset(580, 460),
-Theme = "Dark",
-MinimizeKey = Enum.KeyCode.RightControl
+    Title = "Auto Shop & Mail Hub",
+    SubTitle = "by ChatGPT",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl -- ตั้งค่าให้ใช้ปุ่ม Ctrl ซ้าย ในการเปิด/ปิด
 })
 
 -- ข้อมูลตัวเกม
@@ -18,329 +21,270 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 local allSeeds = {
-"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato",
-"Apple", "Bamboo", "Corn", "Cactus", "Pineapple",
-"Mushroom", "Green Bean", "Banana", "Grape", "Coconut",
-"Mango", "Rocket Pop", "Dragon Fruit", "Acorn", "Cherry",
-"Sunflower", "Fire Fern", "Venus Fly Trap", "Pomegranate",
-"Poison Apple", "Venom Spitter", "Briar Rose", "Moon Bloom",
-"Sun Bloom", "Hypno Bloom", "Dragon's Breath", "Star Fruit",
-"Ghost Pepper", "Poison Ivy", "Baby Cactus", "Glow Mushroom",
-"Romanesco", "Horned Melon", "Eclipse Bloom", "Gold",
-"Rainbow", "Mega"
+    "Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", 
+    "Apple", "Bamboo", "Corn", "Cactus", "Pineapple", 
+    "Mushroom", "Green Bean", "Banana", "Grape", "Coconut", 
+    "Mango", "Rocket Pop", "Dragon Fruit", "Acorn", "Cherry", 
+    "Sunflower", "Fire Fern", "Venus Fly Trap", "Pomegranate", 
+    "Poison Apple", "Venom Spitter", "Briar Rose", "Moon Bloom", 
+    "Sun Bloom", "Hypno Bloom", "Dragon's Breath", "Star Fruit", 
+    "Ghost Pepper", "Poison Ivy", "Baby Cactus", "Glow Mushroom", 
+    "Romanesco", "Horned Melon", "Eclipse Bloom", "Gold", 
+    "Rainbow", "Mega"
 }
 
 local allGears = {
-"Common Watering Can", "Common Sprinkler", "Sign", "Megaphone",
-"Uncommon Sprinkler", "Rare Sprinkler", "Legendary Sprinkler",
-"Super Sprinkler", "Trowel", "Speed Mushroom", "Jump Mushroom",
-"Gnome", "Shrink Mushroom", "Supersize Mushroom", "Invisibility Mushroom",
-"Teleporter", "Legendary Pet Teleporter", "Mythic Pet Teleporter",
-"Super Pet Teleporter", "Super Watering Can", "Basic Pot", "Player Magnet"
+    "Common Watering Can", "Common Sprinkler", "Sign", "Megaphone", 
+    "Uncommon Sprinkler", "Rare Sprinkler", "Legendary Sprinkler", 
+    "Super Sprinkler", "Trowel", "Speed Mushroom", "Jump Mushroom", 
+    "Gnome", "Shrink Mushroom", "Supersize Mushroom", "Invisibility Mushroom", 
+    "Teleporter", "Legendary Pet Teleporter", "Mythic Pet Teleporter", 
+    "Super Pet Teleporter", "Super Watering Can", "Basic Pot", "Player Magnet"
 }
 
--- ระบบปุ่มลอย (Floating Toggle Button) - ฉบับแก้บัคมือถือ 100%
-
-local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
--- ป้องกันตัวรันมือถือที่ซ่อน UI ไว้ใน gethui()
-local rootUI = (gethui and gethui()) or CoreGui
-
--- ลบปุ่มเก่าออกถ้ามี
-if rootUI:FindFirstChild("SAYX_ToggleUI") then
-rootUI.SAYX_ToggleUI:Destroy()
-end
-
-local ToggleUI = Instance.new("ScreenGui")
-ToggleUI.Name = "SAYX_ToggleUI"
-ToggleUI.ResetOnSpawn = false
-ToggleUI.Parent = rootUI
-
-local ToggleButton = Instance.new("TextButton")
-ToggleButton.Name = "ToggleButton"
-ToggleButton.Size = UDim2.new(0, 50, 0, 50)
-ToggleButton.Position = UDim2.new(0.05, 0, 0.1, 0)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-ToggleButton.BackgroundTransparency = 0.3
-ToggleButton.Text = "MENU"
-ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleButton.Font = Enum.Font.GothamBold
-ToggleButton.TextSize = 12
-ToggleButton.Active = true
-ToggleButton.Parent = ToggleUI
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 8)
-UICorner.Parent = ToggleButton
-
-local UIStroke = Instance.new("UIStroke")
-UIStroke.Color = Color3.fromRGB(80, 80, 80)
-UIStroke.Thickness = 1
-UIStroke.Parent = ToggleButton
-
--- ระบบแยกลากกับคลิกสำหรับมือถือ (Touch) และ PC
-local dragging = false
-local dragInput, dragStart, startPos
-local startTick = 0
-local startPosClick
-
-ToggleButton.InputBegan:Connect(function(input)
-if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-dragging = true
-dragStart = input.Position
-startPos = ToggleButton.Position
-
-    -- เก็บข้อมูลไว้เช็คการคลิก
-    startTick = tick()
-    startPosClick = input.Position
-    
-    input.Changed:Connect(function()
-        if input.UserInputState == Enum.UserInputState.End then
-            dragging = false
-        end
-    end)
-end
-
-
-end)
-
-ToggleButton.InputChanged:Connect(function(input)
-if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-dragInput = input
-end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-if input == dragInput and dragging then
-local delta = input.Position - dragStart
-ToggleButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
-end)
-
--- ระบบสลับหน้าต่าง (แก้ปัญหาตัวรันมือถือไม่รับคำสั่งคีย์บอร์ด)
-local FluentUI_ScreenGui = nil
-
-ToggleButton.InputEnded:Connect(function(input)
-if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-local endPosClick = input.Position
-local dist = (endPosClick - startPosClick).Magnitude
-
-    -- ถ้านิ้วขยับไม่เกิน 10 Pixel และกดแป๊บเดียว ถือว่าตั้งใจ "คลิก" ไม่ใช่ลาก
-    if dist < 10 and (tick() - startTick) < 0.5 then
-        -- ตามหาหน้าต่าง UI ของ Fluent ถ้ายังไม่มี
-        if not FluentUI_ScreenGui then
-            for _, gui in ipairs(rootUI:GetChildren()) do
-                if gui:IsA("ScreenGui") and gui.Name ~= "SAYX_ToggleUI" then
-                    -- ค้นหาจากชื่อหน้าต่างที่เราตั้งไว้
-                    for _, desc in ipairs(gui:GetDescendants()) do
-                        if desc:IsA("TextLabel") and string.find(desc.Text, "Auto Shop") then
-                            FluentUI_ScreenGui = gui
-                            break
-                        end
-                    end
-                end
-                if FluentUI_ScreenGui then break end
-            end
-        end
-        
-        -- สลับเปิด/ปิดหน้าต่าง
-        if FluentUI_ScreenGui then
-            FluentUI_ScreenGui.Enabled = not FluentUI_ScreenGui.Enabled
-        else
-            -- ถ้าหาไม่เจอจริงๆ ให้ลองกดปุ่มคีย์บอร์ดเป็นทางเลือกสุดท้าย
-            pcall(function()
-                local vim = game:GetService("VirtualInputManager")
-                vim:SendKeyEvent(true, Enum.KeyCode.RightControl, false, game)
-                vim:SendKeyEvent(false, Enum.KeyCode.RightControl, false, game)
-            end)
-        end
-    end
-end
-
-
-end)
-
 -- สร้าง Tabs
-
 local Tabs = {
-Main = Window:AddTab({ Title = "Main Hub", Icon = "home" }),
-Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+    Main = Window:AddTab({ Title = "Main Hub", Icon = "home" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
 local Options = Fluent.Options
 
+-----------------------------------------------------------------------------
 -- ฟังก์ชันหลังบ้าน (Backend)
-
+-----------------------------------------------------------------------------
 local function buySeed(seedName)
-local bytes = {123, 0, string.len(seedName)}
-for i = 1, string.len(seedName) do table.insert(bytes, string.byte(seedName, i)) end
-local b = buffer.create(#bytes)
-for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
-Event:FireServer(b)
+    local bytes = {123, 0, string.len(seedName)}
+    for i = 1, string.len(seedName) do table.insert(bytes, string.byte(seedName, i)) end
+    local b = buffer.create(#bytes)
+    for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
+    Event:FireServer(b)
 end
 
 local function buyGear(itemName)
-local bytes = {127, 0, string.len(itemName)}
-for i = 1, string.len(itemName) do table.insert(bytes, string.byte(itemName, i)) end
-local b = buffer.create(#bytes)
-for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
-Event:FireServer(b)
+    local bytes = {127, 0, string.len(itemName)}
+    for i = 1, string.len(itemName) do table.insert(bytes, string.byte(itemName, i)) end
+    local b = buffer.create(#bytes)
+    for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
+    Event:FireServer(b)
 end
 
 local function claimDailyDeal()
-local bytes = { 183, 0, 29 }
-local b = buffer.create(#bytes)
-for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
-Event:FireServer(b)
+    local bytes = { 183, 0, 29 }
+    local b = buffer.create(#bytes)
+    for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
+    Event:FireServer(b)
 end
 
 local function claimMail(mailIdStr)
-if not string.match(mailIdStr, "^=&4:") then
-mailIdStr = "=&4:" .. mailIdStr
-end
-local bytes = {38, 1}
-for i = 1, string.len(mailIdStr) do table.insert(bytes, string.byte(mailIdStr, i)) end
-local b = buffer.create(#bytes)
-for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
-Event:FireServer(b)
+    if not string.match(mailIdStr, "^=&4:") then
+        mailIdStr = "=&4:" .. mailIdStr
+    end
+    local bytes = {38, 1}
+    for i = 1, string.len(mailIdStr) do table.insert(bytes, string.byte(mailIdStr, i)) end
+    local b = buffer.create(#bytes)
+    for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
+    Event:FireServer(b)
 end
 
+-----------------------------------------------------------------------------
 -- ส่วน UI หน้าต่าง Main Hub
-
+-----------------------------------------------------------------------------
 Tabs.Main:AddSection("🌾 Auto Seed Shop")
 local SeedDropdown = Tabs.Main:AddDropdown("SeedSelect", {
-Title = "เลือกเมล็ดพันธุ์ที่ต้องการซื้อ",
-Values = allSeeds,
-Multi = true,
-Default = {}
+    Title = "เลือกเมล็ดพันธุ์ที่ต้องการซื้อ",
+    Values = allSeeds,
+    Multi = true,
+    Default = {}
 })
 local SeedDelay = Tabs.Main:AddSlider("SeedDelay", {
-Title = "ดีเลย์การซื้อเมล็ด (วินาที)",
-Min = 0, Max = 10, Default = 0.2, Rounding = 1
+    Title = "ดีเลย์การซื้อเมล็ด (วินาที)",
+    Min = 0, Max = 10, Default = 0.2, Rounding = 1
 })
 local AutoSeed = Tabs.Main:AddToggle("AutoSeed", {Title = "เปิด/ปิด Auto Buy Seeds", Default = false})
 
 Tabs.Main:AddSection("⚙️ Auto Gear Shop")
 local GearDropdown = Tabs.Main:AddDropdown("GearSelect", {
-Title = "เลือกอุปกรณ์ที่ต้องการซื้อ",
-Values = allGears,
-Multi = true,
-Default = {}
+    Title = "เลือกอุปกรณ์ที่ต้องการซื้อ",
+    Values = allGears,
+    Multi = true,
+    Default = {}
 })
 local GearDelay = Tabs.Main:AddSlider("GearDelay", {
-Title = "ดีเลย์การซื้ออุปกรณ์ (วินาที)",
-Min = 0, Max = 10, Default = 0.2, Rounding = 1
+    Title = "ดีเลย์การซื้ออุปกรณ์ (วินาที)",
+    Min = 0, Max = 10, Default = 0.2, Rounding = 1
 })
 local AutoGear = Tabs.Main:AddToggle("AutoGear", {Title = "เปิด/ปิด Auto Buy Gears", Default = false})
 
 Tabs.Main:AddSection("✉️ Auto Mail Claim")
 local MailDelay = Tabs.Main:AddSlider("MailDelay", {
-Title = "ดีเลย์การรับจดหมาย (วินาที)",
-Min = 0, Max = 60, Default = 1, Rounding = 1
+    Title = "ดีเลย์การรับจดหมาย (วินาที)",
+    Min = 0, Max = 60, Default = 1, Rounding = 1
 })
 local AutoMail = Tabs.Main:AddToggle("AutoMail", {Title = "เปิด/ปิด Auto Claim Mail", Default = false})
 
 Tabs.Main:AddSection("💰 Auto Daily Deal")
 local DailyDelay = Tabs.Main:AddSlider("DailyDelay", {
-Title = "ดีเลย์การรับ Daily Deal (วินาที)",
-Min = 0, Max = 60, Default = 5, Rounding = 1
+    Title = "ดีเลย์การรับ Daily Deal (วินาที)",
+    Min = 0, Max = 60, Default = 5, Rounding = 1
 })
 local AutoDaily = Tabs.Main:AddToggle("AutoDaily", {Title = "เปิด/ปิด Auto Daily Deal", Default = false})
 
+-----------------------------------------------------------------------------
 -- ลูปการทำงาน (Loops)
-
--- Auto Seed Loop
+-----------------------------------------------------------------------------
 task.spawn(function()
-while task.wait() do
-if Options.AutoSeed.Value then
-for seedName, isSelected in pairs(Options.SeedSelect.Value) do
-if isSelected and Options.AutoSeed.Value then
-buySeed(seedName)
-task.wait(Options.SeedDelay.Value)
-end
-end
-end
-end
+    while task.wait() do
+        if Options.AutoSeed.Value then
+            for seedName, isSelected in pairs(Options.SeedSelect.Value) do
+                if isSelected and Options.AutoSeed.Value then
+                    buySeed(seedName)
+                    task.wait(Options.SeedDelay.Value)
+                end
+            end
+        end
+    end
 end)
 
--- Auto Gear Loop
 task.spawn(function()
-while task.wait() do
-if Options.AutoGear.Value then
-for gearName, isSelected in pairs(Options.GearSelect.Value) do
-if isSelected and Options.AutoGear.Value then
-buyGear(gearName)
-task.wait(Options.GearDelay.Value)
-end
-end
-end
-end
+    while task.wait() do
+        if Options.AutoGear.Value then
+            for gearName, isSelected in pairs(Options.GearSelect.Value) do
+                if isSelected and Options.AutoGear.Value then
+                    buyGear(gearName)
+                    task.wait(Options.GearDelay.Value)
+                end
+            end
+        end
+    end
 end)
 
--- Auto Mail Loop
 local claimedMails = {}
-
 AutoMail:OnChanged(function()
-if Options.AutoMail.Value then
-claimedMails = {}
-print("🔄 [Auto Mail] รีเซ็ตความจำแคช และเริ่มสแกนใหม่...")
-end
-end)
-
-task.spawn(function()
-local uuidPattern = "%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x"
-
-local function checkAndClaim(str)
-    if not str then return end
-    local match = string.match(tostring(str), uuidPattern)
-    if match and not claimedMails[match] then
-        claimedMails[match] = true
-        claimMail(match)
-        task.wait(Options.MailDelay.Value)
-    end
-end
-
-while task.wait(2) do 
     if Options.AutoMail.Value then
-        for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-            if not Options.AutoMail.Value then break end
-            checkAndClaim(obj.Name)
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-                checkAndClaim(obj.Text)
-            end
-            if obj:IsA("StringValue") then
-                checkAndClaim(obj.Value)
-            end
-            for _, attrValue in pairs(obj:GetAttributes()) do
-                checkAndClaim(attrValue)
-            end
-        end
+        claimedMails = {}
+    end
+end)
 
-        for _, obj in ipairs(LocalPlayer:GetDescendants()) do
-            if not Options.AutoMail.Value then break end
-            checkAndClaim(obj.Name)
-            if obj:IsA("StringValue") then
-                checkAndClaim(obj.Value)
+task.spawn(function()
+    local uuidPattern = "%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x"
+    local function checkAndClaim(str)
+        if not str then return end
+        local match = string.match(tostring(str), uuidPattern)
+        if match and not claimedMails[match] then
+            claimedMails[match] = true
+            claimMail(match)
+            task.wait(Options.MailDelay.Value)
+        end
+    end
+
+    while task.wait(2) do
+        if Options.AutoMail.Value then
+            for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+                if not Options.AutoMail.Value then break end
+                checkAndClaim(obj.Name)
+                if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                    checkAndClaim(obj.Text)
+                end
+                if obj:IsA("StringValue") then checkAndClaim(obj.Value) end
+                for _, attrValue in pairs(obj:GetAttributes()) do checkAndClaim(attrValue) end
+            end
+            for _, obj in ipairs(LocalPlayer:GetDescendants()) do
+                if not Options.AutoMail.Value then break end
+                checkAndClaim(obj.Name)
+                if obj:IsA("StringValue") then checkAndClaim(obj.Value) end
             end
         end
     end
-end
-
-
 end)
 
--- Auto Daily Deal Loop
 task.spawn(function()
-while task.wait() do
-if Options.AutoDaily.Value then
-claimDailyDeal()
-task.wait(Options.DailyDelay.Value)
-end
-end
+    while task.wait() do
+        if Options.AutoDaily.Value then
+            claimDailyDeal()
+            task.wait(Options.DailyDelay.Value)
+        end
+    end
 end)
 
--- ตั้งค่า SaveManager & InterfaceManager
+-----------------------------------------------------------------------------
+-- สร้างปุ่ม Mini Size (สำหรับมือถือ ลากได้ + เมื่อกดจะจำลองการกด Ctrl)
+-----------------------------------------------------------------------------
+local coreGui = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
 
+local MiniGui = Instance.new("ScreenGui")
+MiniGui.Name = "MiniHubGui_VirtualKey"
+MiniGui.ResetOnSpawn = false
+MiniGui.Parent = coreGui
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Size = UDim2.new(0, 45, 0, 45)
+ToggleBtn.Position = UDim2.new(0.1, 0, 0.1, 0)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.TextSize = 14
+ToggleBtn.Text = "HUB"
+ToggleBtn.Parent = MiniGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = ToggleBtn
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(80, 80, 80)
+UIStroke.Thickness = 1.5
+UIStroke.Parent = ToggleBtn
+
+-- ระบบลาก UI
+local dragging, dragInput, dragStart, startPos, startClickPos
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = ToggleBtn.Position
+        startClickPos = input.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+ToggleBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        ToggleBtn.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X, 
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- เมื่อแตะ/คลิกปุ่ม จะส่งคำสั่งเสมือนว่ากดปุ่ม LeftControl บนคีย์บอร์ด (เพื่อให้ Fluent ย่อ/ขยายตัวเอง)
+ToggleBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if (input.Position - startClickPos).Magnitude < 15 then
+            -- จำลองการกดปุ่ม Ctrl ค้างไว้และปล่อย
+            VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
+            task.wait()
+            VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
+        end
+    end
+end)
+
+-----------------------------------------------------------------------------
+-- ตั้งค่า SaveManager & InterfaceManager
+-----------------------------------------------------------------------------
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
 
@@ -355,8 +299,8 @@ SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
 Fluent:Notify({
-Title = "อัปเดตระบบมือถือ!",
-Content = "ปุ่มกดเปิด/ปิด เมนูตอนนี้รองรับมือถือ 100% แล้ว",
-Duration = 5
+    Title = "อัปเดตระบบปุ่มแล้ว!",
+    Content = "ปุ่ม HUB จะจำลองการกด Ctrl แทน",
+    Duration = 5
 })
 SaveManager:LoadAutoloadConfig()
