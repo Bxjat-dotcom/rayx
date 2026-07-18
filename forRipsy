@@ -39,27 +39,29 @@ local allGears = {
 "Super Pet Teleporter", "Super Watering Can", "Basic Pot", "Player Magnet"
 }
 
--- ระบบปุ่มลอย (Floating Toggle Button) - ฉบับเสถียรที่สุด
+-- ระบบปุ่มลอย (Floating Toggle Button) - ฉบับแก้บัคมือถือ 100%
 
 local CoreGui = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
+-- ป้องกันตัวรันมือถือที่ซ่อน UI ไว้ใน gethui()
+local rootUI = (gethui and gethui()) or CoreGui
 
 -- ลบปุ่มเก่าออกถ้ามี
-if CoreGui:FindFirstChild("SAYX_ToggleUI") then
-CoreGui.SAYX_ToggleUI:Destroy()
+if rootUI:FindFirstChild("SAYX_ToggleUI") then
+rootUI.SAYX_ToggleUI:Destroy()
 end
 
 local ToggleUI = Instance.new("ScreenGui")
 ToggleUI.Name = "SAYX_ToggleUI"
 ToggleUI.ResetOnSpawn = false
-ToggleUI.Parent = CoreGui
+ToggleUI.Parent = rootUI
 
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Name = "ToggleButton"
 ToggleButton.Size = UDim2.new(0, 50, 0, 50)
 ToggleButton.Position = UDim2.new(0.05, 0, 0.1, 0)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-ToggleButton.BackgroundTransparency = 0.2
+ToggleButton.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+ToggleButton.BackgroundTransparency = 0.3
 ToggleButton.Text = "MENU"
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.Font = Enum.Font.GothamBold
@@ -76,50 +78,86 @@ UIStroke.Color = Color3.fromRGB(80, 80, 80)
 UIStroke.Thickness = 1
 UIStroke.Parent = ToggleButton
 
--- ระบบแยกลากกับคลิกแบบละเอียด
+-- ระบบแยกลากกับคลิกสำหรับมือถือ (Touch) และ PC
 local dragging = false
-local isMoved = false
-local dragStart, startPos
+local dragInput, dragStart, startPos
+local startTick = 0
+local startPosClick
 
 ToggleButton.InputBegan:Connect(function(input)
 if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 dragging = true
-isMoved = false
 dragStart = input.Position
 startPos = ToggleButton.Position
+
+    -- เก็บข้อมูลไว้เช็คการคลิก
+    startTick = tick()
+    startPosClick = input.Position
+    
+    input.Changed:Connect(function()
+        if input.UserInputState == Enum.UserInputState.End then
+            dragging = false
+        end
+    end)
+end
+
+
+end)
+
+ToggleButton.InputChanged:Connect(function(input)
+if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+dragInput = input
 end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+if input == dragInput and dragging then
 local delta = input.Position - dragStart
-if delta.Magnitude > 10 then -- ถ้านิ้วขยับเกิน 10 Pixel จะถือว่าเป็นการ "ลาก" ทันที
-isMoved = true
 ToggleButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
 end
 end)
 
-UserInputService.InputEnded:Connect(function(input)
+-- ระบบสลับหน้าต่าง (แก้ปัญหาตัวรันมือถือไม่รับคำสั่งคีย์บอร์ด)
+local FluentUI_ScreenGui = nil
+
+ToggleButton.InputEnded:Connect(function(input)
 if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-if dragging and not isMoved then
--- ถ้าปล่อยนิ้ว/เมาส์ โดยที่ไม่ได้ลากไปไหนเลย = "คลิก"
-pcall(function()
--- วิธีที่ 1: สำหรับ Executor ที่มีระบบ keypress (ส่วนใหญ่จะเป็นมือถือหรือตัวระดับสูง)
-if keypress then
-keypress(0xA3) -- 0xA3 = RightControl
-keyrelease(0xA3)
+local endPosClick = input.Position
+local dist = (endPosClick - startPosClick).Magnitude
+
+    -- ถ้านิ้วขยับไม่เกิน 10 Pixel และกดแป๊บเดียว ถือว่าตั้งใจ "คลิก" ไม่ใช่ลาก
+    if dist < 10 and (tick() - startTick) < 0.5 then
+        -- ตามหาหน้าต่าง UI ของ Fluent เพื่อสั่งซ่อน/แสดงโดยตรง
+        if not FluentUI_ScreenGui then
+            for _, gui in ipairs(rootUI:GetChildren()) do
+                if gui:IsA("ScreenGui") and gui.Name ~= "SAYX_ToggleUI" then
+                    -- เช็คว่า ScreenGui นี้ใช่เมนูของเราไหม จากชื่อ "Auto Shop"
+                    for _, desc in ipairs(gui:GetDescendants()) do
+                        if desc:IsA("TextLabel") and string.find(desc.Text, "Auto Shop") then
+                            FluentUI_ScreenGui = gui
+                            break
+                        end
+                    end
+                end
+                if FluentUI_ScreenGui then break end
+            end
+        end
+        
+        -- สลับเปิด/ปิดหน้าต่าง
+        if FluentUI_ScreenGui then
+            FluentUI_ScreenGui.Enabled = not FluentUI_ScreenGui.Enabled
+        else
+            -- ไม้ตายสำรอง ถ้าหาไม่เจอจริงๆ
+            pcall(function()
+                local vim = game:GetService("VirtualInputManager")
+                vim:SendKeyEvent(true, Enum.KeyCode.RightControl, false, game)
+                vim:SendKeyEvent(false, Enum.KeyCode.RightControl, false, game)
+            end)
+        end
+    end
 end
-end)
-pcall(function()
--- วิธีที่ 2: ระบบจำลองปุ่มมาตรฐาน
-local vim = game:GetService("VirtualInputManager")
-vim:SendKeyEvent(true, Enum.KeyCode.RightControl, false, game)
-vim:SendKeyEvent(false, Enum.KeyCode.RightControl, false, game)
-end)
-end
-dragging = false
-end
+
+
 end)
 
 -- สร้าง Tabs
@@ -317,8 +355,8 @@ SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
 Fluent:Notify({
-Title = "พร้อมใช้งาน!",
-Content = "อัปเดตระบบสัมผัสของปุ่มให้ตอบสนองแม่นยำแล้ว",
+Title = "อัปเดตระบบมือถือ!",
+Content = "ปุ่มกดเปิด/ปิด เมนูตอนนี้รองรับมือถือ 100% แล้ว",
 Duration = 5
 })
 SaveManager:LoadAutoloadConfig()
