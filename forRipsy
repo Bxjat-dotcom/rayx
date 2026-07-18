@@ -127,11 +127,11 @@ local dist = (endPosClick - startPosClick).Magnitude
 
     -- ถ้านิ้วขยับไม่เกิน 10 Pixel และกดแป๊บเดียว ถือว่าตั้งใจ "คลิก" ไม่ใช่ลาก
     if dist < 10 and (tick() - startTick) < 0.5 then
-        -- ตามหาหน้าต่าง UI ของ Fluent เพื่อสั่งซ่อน/แสดงโดยตรง
+        -- ตามหาหน้าต่าง UI ของ Fluent ถ้ายังไม่มี
         if not FluentUI_ScreenGui then
             for _, gui in ipairs(rootUI:GetChildren()) do
                 if gui:IsA("ScreenGui") and gui.Name ~= "SAYX_ToggleUI" then
-                    -- เช็คว่า ScreenGui นี้ใช่เมนูของเราไหม จากชื่อ "Auto Shop"
+                    -- ค้นหาจากชื่อหน้าต่างที่เราตั้งไว้
                     for _, desc in ipairs(gui:GetDescendants()) do
                         if desc:IsA("TextLabel") and string.find(desc.Text, "Auto Shop") then
                             FluentUI_ScreenGui = gui
@@ -147,7 +147,7 @@ local dist = (endPosClick - startPosClick).Magnitude
         if FluentUI_ScreenGui then
             FluentUI_ScreenGui.Enabled = not FluentUI_ScreenGui.Enabled
         else
-            -- ไม้ตายสำรอง ถ้าหาไม่เจอจริงๆ
+            -- ถ้าหาไม่เจอจริงๆ ให้ลองกดปุ่มคีย์บอร์ดเป็นทางเลือกสุดท้าย
             pcall(function()
                 local vim = game:GetService("VirtualInputManager")
                 vim:SendKeyEvent(true, Enum.KeyCode.RightControl, false, game)
