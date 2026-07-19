@@ -1,18 +1,18 @@
--- โหลด Fluent UI
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local UserInputService = game:GetService("UserInputService")
 local VIM = game:GetService("VirtualInputManager")
+local VirtualUser = game:GetService("VirtualUser") 
 
 local Window = Fluent:CreateWindow({
     Title = "Auto Shop & Mail Hub",
-    SubTitle = "by ChatGPT",
+    SubTitle = "by ChatGPT (Auto Re-Open UI)",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Theme = "Dark",
-    MinimizeKey = Enum.KeyCode.LeftControl -- ตั้งค่าให้ใช้ปุ่ม Ctrl ซ้าย ในการเปิด/ปิด
+    MinimizeKey = Enum.KeyCode.LeftControl 
 })
 
 -- ข้อมูลตัวเกม
@@ -42,7 +42,6 @@ local allGears = {
     "Super Pet Teleporter", "Super Watering Can", "Basic Pot", "Player Magnet"
 }
 
--- สร้าง Tabs
 local Tabs = {
     Main = Window:AddTab({ Title = "Main Hub", Icon = "home" }),
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
@@ -51,7 +50,7 @@ local Tabs = {
 local Options = Fluent.Options
 
 -----------------------------------------------------------------------------
--- ฟังก์ชันหลังบ้าน (Backend)
+-- ฟังก์ชันหลังบ้าน
 -----------------------------------------------------------------------------
 local function buySeed(seedName)
     local bytes = {123, 0, string.len(seedName)}
@@ -87,48 +86,122 @@ local function claimMail(mailIdStr)
     Event:FireServer(b)
 end
 
+local function sellAll()
+    local bytes = { 179, 0, 116 }
+    local b = buffer.create(#bytes)
+    for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
+    Event:FireServer(b)
+end
+
+local antiAfkConnection
+local function toggleAntiAFK(state)
+    if state then
+        if not antiAfkConnection then
+            antiAfkConnection = LocalPlayer.Idled:Connect(function()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new())
+            end)
+        end
+    else
+        if antiAfkConnection then
+            antiAfkConnection:Disconnect()
+            antiAfkConnection = nil
+        end
+    end
+end
+
+-- ฟังก์ชันจำลองการกดเปิดตู้จดหมาย
+local function forceOpenMailbox()
+    pcall(function()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") then
+                local name = (obj.Parent and obj.Parent.Name or ""):lower()
+                local action = (obj.ActionText or ""):lower()
+                local objText = (obj.ObjectText or ""):lower()
+                
+                if name:find("mail") or action:find("mail") or objText:find("mail") or name:find("inbox") then
+                    local oldDist = obj.MaxActivationDistance
+                    local oldLOS = obj.RequiresLineOfSight
+                    
+                    obj.MaxActivationDistance = 999999
+                    obj.RequiresLineOfSight = false
+                    
+                    if fireproximityprompt then
+                        fireproximityprompt(obj, 1)
+                    end
+                    
+                    obj.MaxActivationDistance = oldDist
+                    obj.RequiresLineOfSight = oldLOS
+                end
+            elseif obj:IsA("ClickDetector") then
+                local name = (obj.Parent and obj.Parent.Name or ""):lower()
+                if name:find("mail") or name:find("inbox") then
+                    if fireclickdetector then
+                        fireclickdetector(obj)
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- [ใหม่] ฟังก์ชันเช็คว่าหน้าต่าง UI จดหมายกำลังเปิดอยู่หรือไม่
+local function isMailUIOpen()
+    local isOpen = false
+    pcall(function()
+        for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+            if obj:IsA("ScreenGui") or obj:IsA("Frame") or obj:IsA("ScrollingFrame") then
+                local name = string.lower(obj.Name)
+                if name:find("mail") or name:find("inbox") then
+                    -- เช็คสถานะการมองเห็น
+                    if obj:IsA("ScreenGui") and obj.Enabled then
+                        isOpen = true
+                        break
+                    elseif (obj:IsA("Frame") or obj:IsA("ScrollingFrame")) and obj.Visible then
+                        local parentGui = obj:FindFirstAncestorOfClass("ScreenGui")
+                        if parentGui and parentGui.Enabled then
+                            isOpen = true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    return isOpen
+end
+
 -----------------------------------------------------------------------------
--- ส่วน UI หน้าต่าง Main Hub
+-- ส่วน UI
 -----------------------------------------------------------------------------
 Tabs.Main:AddSection("🌾 Auto Seed Shop")
-local SeedDropdown = Tabs.Main:AddDropdown("SeedSelect", {
-    Title = "เลือกเมล็ดพันธุ์ที่ต้องการซื้อ",
-    Values = allSeeds,
-    Multi = true,
-    Default = {}
-})
-local SeedDelay = Tabs.Main:AddSlider("SeedDelay", {
-    Title = "ดีเลย์การซื้อเมล็ด (วินาที)",
-    Min = 0, Max = 10, Default = 0.2, Rounding = 1
-})
+local SeedDropdown = Tabs.Main:AddDropdown("SeedSelect", { Title = "เลือกเมล็ดพันธุ์", Values = allSeeds, Multi = true, Default = {} })
+local SeedDelay = Tabs.Main:AddSlider("SeedDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 10, Default = 0.2, Rounding = 1 })
 local AutoSeed = Tabs.Main:AddToggle("AutoSeed", {Title = "เปิด/ปิด Auto Buy Seeds", Default = false})
 
 Tabs.Main:AddSection("⚙️ Auto Gear Shop")
-local GearDropdown = Tabs.Main:AddDropdown("GearSelect", {
-    Title = "เลือกอุปกรณ์ที่ต้องการซื้อ",
-    Values = allGears,
-    Multi = true,
-    Default = {}
-})
-local GearDelay = Tabs.Main:AddSlider("GearDelay", {
-    Title = "ดีเลย์การซื้ออุปกรณ์ (วินาที)",
-    Min = 0, Max = 10, Default = 0.2, Rounding = 1
-})
+local GearDropdown = Tabs.Main:AddDropdown("GearSelect", { Title = "เลือกอุปกรณ์", Values = allGears, Multi = true, Default = {} })
+local GearDelay = Tabs.Main:AddSlider("GearDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 10, Default = 0.2, Rounding = 1 })
 local AutoGear = Tabs.Main:AddToggle("AutoGear", {Title = "เปิด/ปิด Auto Buy Gears", Default = false})
 
+Tabs.Main:AddSection("🛒 Auto Sell All")
+local SellDelay = Tabs.Main:AddSlider("SellDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 60, Default = 5, Rounding = 1 })
+local AutoSell = Tabs.Main:AddToggle("AutoSell", {Title = "เปิด/ปิด Auto Sell All", Default = false})
+
 Tabs.Main:AddSection("✉️ Auto Mail Claim")
-local MailDelay = Tabs.Main:AddSlider("MailDelay", {
-    Title = "ดีเลย์การรับจดหมาย (วินาที)",
-    Min = 0, Max = 60, Default = 1, Rounding = 1
-})
+local MailDelay = Tabs.Main:AddSlider("MailDelay", { Title = "ดีเลย์การรับจดหมาย (วินาที)", Min = 0, Max = 60, Default = 1, Rounding = 1 })
 local AutoMail = Tabs.Main:AddToggle("AutoMail", {Title = "เปิด/ปิด Auto Claim Mail", Default = false})
 
 Tabs.Main:AddSection("💰 Auto Daily Deal")
-local DailyDelay = Tabs.Main:AddSlider("DailyDelay", {
-    Title = "ดีเลย์การรับ Daily Deal (วินาที)",
-    Min = 0, Max = 60, Default = 5, Rounding = 1
-})
+local DailyDelay = Tabs.Main:AddSlider("DailyDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 60, Default = 5, Rounding = 1 })
 local AutoDaily = Tabs.Main:AddToggle("AutoDaily", {Title = "เปิด/ปิด Auto Daily Deal", Default = false})
+
+Tabs.Settings:AddSection("🛡️ Anti-AFK")
+local AntiAFKToggle = Tabs.Settings:AddToggle("AntiAFK", {Title = "เปิด/ปิด Anti-AFK", Default = false})
+
+AntiAFKToggle:OnChanged(function()
+    toggleAntiAFK(Options.AntiAFK.Value)
+end)
 
 -----------------------------------------------------------------------------
 -- ลูปการทำงาน (Loops)
@@ -159,6 +232,16 @@ task.spawn(function()
     end
 end)
 
+task.spawn(function()
+    while task.wait() do
+        if Options.AutoSell.Value then
+            pcall(function() sellAll() end)
+            task.wait(Options.SellDelay.Value)
+        end
+    end
+end)
+
+-- [อัปเดตแก้ไข] ลูปการรับ Mail
 local claimedMails = {}
 AutoMail:OnChanged(function()
     if Options.AutoMail.Value then
@@ -168,9 +251,10 @@ end)
 
 task.spawn(function()
     local uuidPattern = "%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x"
+    
     local function checkAndClaim(str)
-        if not str then return end
-        local match = string.match(tostring(str), uuidPattern)
+        if type(str) ~= "string" then return end
+        local match = string.match(str, uuidPattern)
         if match and not claimedMails[match] then
             claimedMails[match] = true
             claimMail(match)
@@ -178,22 +262,57 @@ task.spawn(function()
         end
     end
 
+    local lastGCScan = 0
+
     while task.wait(2) do
         if Options.AutoMail.Value then
-            for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-                if not Options.AutoMail.Value then break end
-                checkAndClaim(obj.Name)
-                if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-                    checkAndClaim(obj.Text)
+            
+            -- [เช็คสถานะ UI] ถ้าหน้าต่าง UI จดหมายปิดอยู่ ให้สั่งเปิดใหม่ทันที!
+            if not isMailUIOpen() then
+                forceOpenMailbox()
+                task.wait(1) -- หน่วงเวลา 1 วิ รอให้หน้า UI โหลดเสร็จก่อน
+            end
+            
+            -- สแกน UI รับของ (ทำต่อหลังจากแน่ใจว่าหน้า UI เปิดอยู่)
+            pcall(function()
+                for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+                    if not Options.AutoMail.Value then break end
+                    checkAndClaim(obj.Name)
+                    if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                        checkAndClaim(obj.Text)
+                    end
+                    if obj:IsA("StringValue") then checkAndClaim(obj.Value) end
+                    for _, attrValue in pairs(obj:GetAttributes()) do checkAndClaim(attrValue) end
                 end
-                if obj:IsA("StringValue") then checkAndClaim(obj.Value) end
-                for _, attrValue in pairs(obj:GetAttributes()) do checkAndClaim(attrValue) end
+            end)
+
+            -- สแกน ReplicatedStorage
+            pcall(function()
+                for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+                    if not Options.AutoMail.Value then break end
+                    checkAndClaim(obj.Name)
+                    if obj:IsA("StringValue") then checkAndClaim(obj.Value) end
+                end
+            end)
+
+            -- สแกนจาก Memory
+            if tick() - lastGCScan > 10 then
+                lastGCScan = tick()
+                pcall(function()
+                    for _, v in ipairs(getgc(true)) do
+                        if not Options.AutoMail.Value then break end
+                        if type(v) == "table" then
+                            pcall(function()
+                                for key, val in pairs(v) do
+                                    if type(key) == "string" and #key >= 36 then checkAndClaim(key) end
+                                    if type(val) == "string" and #val >= 36 then checkAndClaim(val) end
+                                end
+                            end)
+                        end
+                    end
+                end)
             end
-            for _, obj in ipairs(LocalPlayer:GetDescendants()) do
-                if not Options.AutoMail.Value then break end
-                checkAndClaim(obj.Name)
-                if obj:IsA("StringValue") then checkAndClaim(obj.Value) end
-            end
+            
         end
     end
 end)
@@ -208,10 +327,9 @@ task.spawn(function()
 end)
 
 -----------------------------------------------------------------------------
--- สร้างปุ่ม Mini Size (สำหรับมือถือ ลากได้ + เมื่อกดจะจำลองการกด Ctrl)
+-- สร้างปุ่ม Mini Size
 -----------------------------------------------------------------------------
 local coreGui = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
-
 local MiniGui = Instance.new("ScreenGui")
 MiniGui.Name = "MiniHubGui_VirtualKey"
 MiniGui.ResetOnSpawn = false
@@ -236,7 +354,6 @@ UIStroke.Color = Color3.fromRGB(80, 80, 80)
 UIStroke.Thickness = 1.5
 UIStroke.Parent = ToggleBtn
 
--- ระบบลาก UI
 local dragging, dragInput, dragStart, startPos, startClickPos
 
 ToggleBtn.InputBegan:Connect(function(input)
@@ -270,11 +387,9 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- เมื่อแตะ/คลิกปุ่ม จะส่งคำสั่งเสมือนว่ากดปุ่ม LeftControl บนคีย์บอร์ด (เพื่อให้ Fluent ย่อ/ขยายตัวเอง)
 ToggleBtn.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         if (input.Position - startClickPos).Magnitude < 15 then
-            -- จำลองการกดปุ่ม Ctrl ค้างไว้และปล่อย
             VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
             task.wait()
             VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
@@ -287,20 +402,17 @@ end)
 -----------------------------------------------------------------------------
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
-
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({})
-
 InterfaceManager:SetFolder("AutoHubScript")
 SaveManager:SetFolder("AutoHubScript/Config")
-
 InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
 Fluent:Notify({
-    Title = "อัปเดตระบบปุ่มแล้ว!",
-    Content = "ปุ่ม HUB จะจำลองการกด Ctrl แทน",
+    Title = "Auto UI Check",
+    Content = "เพิ่มระบบเช็คหน้าต่าง หาก UI ปิดเอง สคริปต์จะบังคับเปิดให้ใหม่ทันที!",
     Duration = 5
 })
 SaveManager:LoadAutoloadConfig()
