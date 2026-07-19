@@ -6,19 +6,58 @@ local UserInputService = game:GetService("UserInputService")
 local VIM = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser") 
 
+-- ข้อมูลตัวเกมเบื้องต้น
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Event = game:GetService("ReplicatedStorage"):WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
+
+-----------------------------------------------------------------------------
+-- [ระบบตรวจจับว่าเพิ่งเข้าเกมใหม่ หรือ เล่นมาสักพักแล้ว]
+-----------------------------------------------------------------------------
+local scriptStartTime = tick()
+local isFreshJoin = false
+
+-- ถ้ารันสคริปต์ตอนเกมยังไม่โหลด หรือตัวละครยังไม่เกิด ถือว่า "เพิ่งเข้าเกมใหม่ (Auto-Execute)"
+if not game:IsLoaded() or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+    isFreshJoin = true
+end
+
 local Window = Fluent:CreateWindow({
     Title = "Auto Shop & Mail Hub",
-    SubTitle = "by ChatGPT (Fixed Auto Refresh)",
+    SubTitle = "by ChatGPT (Fixed Mail Bug)",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.LeftControl 
 })
 
--- ข้อมูลตัวเกม
-local Event = game:GetService("ReplicatedStorage").SharedModules.Packet.RemoteEvent
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
+-----------------------------------------------------------------------------
+-- [ระบบ Auto K] จะทำงานเฉพาะเวลาเพิ่งเข้าเกมใหม่เท่านั้น
+-----------------------------------------------------------------------------
+if isFreshJoin then
+    task.spawn(function()
+        Fluent:Notify({
+            Title = "Auto Start",
+            Content = "ตรวจพบการเข้าเกมใหม่: เริ่มกดปุ่ม K อัตโนมัติ 30 วินาที...",
+            Duration = 5
+        })
+        
+        -- วนลูปกด K จนกว่าเวลาจะผ่านไป 32 วินาที (เผื่อเวลาโหลดนิดหน่อย)
+        while tick() - scriptStartTime < 32 do
+            VIM:SendKeyEvent(true, Enum.KeyCode.K, false, game)
+            task.wait(0.1)
+            VIM:SendKeyEvent(false, Enum.KeyCode.K, false, game)
+            task.wait(0.9)
+        end
+        
+        Fluent:Notify({
+            Title = "Auto Start",
+            Content = "หน้าโหลดเสร็จสิ้น ระบบ Auto Mail พร้อมทำงาน",
+            Duration = 5
+        })
+    end)
+end
+-----------------------------------------------------------------------------
 
 local allSeeds = {
     "Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", 
@@ -110,7 +149,6 @@ local function toggleAntiAFK(state)
     end
 end
 
--- [อัปเดต] ฟังก์ชันเปิดตู้จดหมายอย่างปลอดภัย
 local function forceOpenMailbox()
     local foundAndFired = false
     pcall(function()
@@ -133,14 +171,14 @@ local function forceOpenMailbox()
                     obj.RequiresLineOfSight = oldLOS
                     
                     foundAndFired = true
-                    break -- สำคัญมาก! เจอ 1 อันแล้วให้หยุดกดทันที
+                    break
                 end
             elseif obj:IsA("ClickDetector") then
                 local name = (obj.Parent and obj.Parent.Name or ""):lower()
                 if name:find("mail") or name:find("inbox") then
                     if fireclickdetector then fireclickdetector(obj) end
                     foundAndFired = true
-                    break -- สำคัญมาก! เจอ 1 อันแล้วให้หยุดกดทันที
+                    break
                 end
             end
         end
@@ -148,33 +186,35 @@ local function forceOpenMailbox()
     return foundAndFired
 end
 
--- [อัปเดต] ฟังก์ชันปิดตู้จดหมายแบบถูกวิธี (จำลองการคลิก X)
 local function closeMailUI()
     pcall(function()
-        for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-            if obj:IsA("GuiButton") and obj.Visible then
-                local name = obj.Name:lower()
-                local text = obj:IsA("TextButton") and obj.Text:lower() or ""
-                
-                if name:find("close") or name == "x" or text:find("close") or text == "x" then
-                    local ancestor = obj:FindFirstAncestorWhichIsA("ScreenGui")
-                    if ancestor and (ancestor.Name:lower():find("mail") or ancestor.Name:lower():find("inbox")) then
-                        if firesignal then
-                            pcall(function() firesignal(obj.MouseButton1Click) end)
-                            pcall(function() firesignal(obj.Activated) end)
-                        end
-                        -- จำลองการคลิกเมาส์ปุ่มซ้าย
-                        pcall(function()
-                            local vim = game:GetService("VirtualInputManager")
-                            local cx = obj.AbsolutePosition.X + (obj.AbsoluteSize.X / 2)
-                            local cy = obj.AbsolutePosition.Y + (obj.AbsoluteSize.Y / 2) + 36
-                            vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-                            task.wait(0.1)
-                            vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
-                        end)
-                        break -- เจอแล้วกดปิด แล้วหยุดค้นหาทันที
-                    end
+        local gui = LocalPlayer.PlayerGui:FindFirstChild("MailboxUI")
+        if gui and gui:FindFirstChild("Frame") and gui.Frame:FindFirstChild("Header") and gui.Frame.Header:FindFirstChild("ExitButton") then
+            local exitBtn = gui.Frame.Header.ExitButton
+            
+            local fakeInputBegin = {UserInputType = Enum.UserInputType.MouseButton1, UserInputState = Enum.UserInputState.Begin}
+            local fakeInputEnd = {UserInputType = Enum.UserInputType.MouseButton1, UserInputState = Enum.UserInputState.End}
+
+            if getconnections then
+                for _, conn in pairs(getconnections(exitBtn.InputBegan)) do
+                    pcall(function() conn:Fire(fakeInputBegin) end)
                 end
+                task.wait(0.05)
+                for _, conn in pairs(getconnections(exitBtn.InputEnded)) do
+                    pcall(function() conn:Fire(fakeInputEnd) end)
+                end
+                for _, conn in pairs(getconnections(exitBtn.Activated)) do pcall(function() conn:Fire() end) end
+                for _, conn in pairs(getconnections(exitBtn.MouseButton1Click)) do pcall(function() conn:Fire() end) end
+            else
+                local guiService = game:GetService("GuiService")
+                local inset = guiService:GetGuiInset() 
+                
+                local cx = exitBtn.AbsolutePosition.X + (exitBtn.AbsoluteSize.X / 2) + inset.X
+                local cy = exitBtn.AbsolutePosition.Y + (exitBtn.AbsoluteSize.Y / 2) + inset.Y
+                
+                VIM:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+                task.wait(0.05)
+                VIM:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
             end
         end
     end)
@@ -250,7 +290,6 @@ task.spawn(function()
     end
 end)
 
--- ลูปการรับ Mail
 local claimedMails = {}
 AutoMail:OnChanged(function()
     if Options.AutoMail.Value then
@@ -275,54 +314,57 @@ task.spawn(function()
     while task.wait(1) do
         if Options.AutoMail.Value then
             
-            -- [ขั้นที่ 1] บังคับเปิดตู้จดหมาย
-            forceOpenMailbox()
-            task.wait(1.5) -- รอ 1.5 วินาทีให้จดหมายล่าสุดโหลดเข้าหน้าต่าง
-            
-            -- [ขั้นที่ 2] สแกนหาจดหมายและรับของ
-            pcall(function()
-                for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-                    if not Options.AutoMail.Value then break end
-                    checkAndClaim(obj.Name)
-                    if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then checkAndClaim(obj.Text) end
-                    if obj:IsA("StringValue") then checkAndClaim(obj.Value) end
-                    for _, attrValue in pairs(obj:GetAttributes()) do checkAndClaim(attrValue) end
-                end
-            end)
-
-            pcall(function()
-                for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-                    if not Options.AutoMail.Value then break end
-                    checkAndClaim(obj.Name)
-                    if obj:IsA("StringValue") then checkAndClaim(obj.Value) end
-                end
-            end)
-
-            if tick() - lastGCScan > 10 then
-                lastGCScan = tick()
+            -- [ส่วนแก้อาการบัค UI เมลค้างตอนเปิดออโต้]
+            -- ถ้าเพิ่งเข้าเกมใหม่ และเวลาผ่านไปไม่ถึง 35 วินาที -> ให้ข้ามรอบไปก่อน ไม่ต้องทำอะไร
+            if isFreshJoin and (tick() - scriptStartTime < 35) then
+                -- จะไม่โหลด UI เมล ทำให้ไม่เกิดอาการบัคซ้อนทับ
+            else
+                -- ถ้าเกิน 35 วินาทีแล้ว (หรือรันตอนอยู่ในเกมนานแล้ว) ให้เริ่มเปิด UI เมลตามปกติ
+                forceOpenMailbox()
+                task.wait(1.5)
+                
                 pcall(function()
-                    for _, v in ipairs(getgc(true)) do
+                    for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
                         if not Options.AutoMail.Value then break end
-                        if type(v) == "table" then
-                            pcall(function()
-                                for key, val in pairs(v) do
-                                    if type(key) == "string" and #key >= 36 then checkAndClaim(key) end
-                                    if type(val) == "string" and #val >= 36 then checkAndClaim(val) end
-                                end
-                            end)
-                        end
+                        checkAndClaim(obj.Name)
+                        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then checkAndClaim(obj.Text) end
+                        if obj:IsA("StringValue") then checkAndClaim(obj.Value) end
+                        for _, attrValue in pairs(obj:GetAttributes()) do checkAndClaim(attrValue) end
                     end
                 end)
-            end
-            
-            -- [ขั้นที่ 3] สั่งปิดหน้าต่าง UI ทิ้งให้เกมรับรู้สถานะปกติ
-            if Options.AutoMail.Value then
-                closeMailUI()
-            end
 
-            -- [ขั้นที่ 4] รอเวลาพัก (ป้องกันการกดรัวเกินไป)
-            local delayToWait = math.max(2, Options.MailDelay.Value)
-            task.wait(delayToWait)
+                pcall(function()
+                    for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+                        if not Options.AutoMail.Value then break end
+                        checkAndClaim(obj.Name)
+                        if obj:IsA("StringValue") then checkAndClaim(obj.Value) end
+                    end
+                end)
+
+                if tick() - lastGCScan > 10 then
+                    lastGCScan = tick()
+                    pcall(function()
+                        for _, v in ipairs(getgc(true)) do
+                            if not Options.AutoMail.Value then break end
+                            if type(v) == "table" then
+                                pcall(function()
+                                    for key, val in pairs(v) do
+                                        if type(key) == "string" and #key >= 36 then checkAndClaim(key) end
+                                        if type(val) == "string" and #val >= 36 then checkAndClaim(val) end
+                                    end
+                                end)
+                            end
+                        end
+                    end)
+                end
+                
+                if Options.AutoMail.Value then
+                    closeMailUI()
+                end
+
+                local delayToWait = math.max(2, Options.MailDelay.Value)
+                task.wait(delayToWait)
+            end
         end
     end
 end)
@@ -420,9 +462,4 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-Fluent:Notify({
-    Title = "แก้ไขระบบ Refresh สำเร็จ",
-    Content = "จะเปิด-ปิด-เปิด ได้เรื่อยๆ แล้วครับ ตัวเกมจะไม่รวน",
-    Duration = 5
-})
 SaveManager:LoadAutoloadConfig()
