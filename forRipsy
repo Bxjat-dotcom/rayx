@@ -8,7 +8,7 @@ local VirtualUser = game:GetService("VirtualUser")
 
 local Window = Fluent:CreateWindow({
     Title = "Auto Shop & Mail Hub",
-    SubTitle = "by ChatGPT (Auto Refresh Edition)",
+    SubTitle = "by ChatGPT (Fixed Auto Refresh)",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Theme = "Dark",
@@ -110,8 +110,9 @@ local function toggleAntiAFK(state)
     end
 end
 
--- ฟังก์ชันจำลองการกดเปิดตู้จดหมาย
+-- [อัปเดต] ฟังก์ชันเปิดตู้จดหมายอย่างปลอดภัย
 local function forceOpenMailbox()
+    local foundAndFired = false
     pcall(function()
         for _, obj in ipairs(workspace:GetDescendants()) do
             if obj:IsA("ProximityPrompt") then
@@ -130,21 +131,26 @@ local function forceOpenMailbox()
                     
                     obj.MaxActivationDistance = oldDist
                     obj.RequiresLineOfSight = oldLOS
+                    
+                    foundAndFired = true
+                    break -- สำคัญมาก! เจอ 1 อันแล้วให้หยุดกดทันที
                 end
             elseif obj:IsA("ClickDetector") then
                 local name = (obj.Parent and obj.Parent.Name or ""):lower()
                 if name:find("mail") or name:find("inbox") then
                     if fireclickdetector then fireclickdetector(obj) end
+                    foundAndFired = true
+                    break -- สำคัญมาก! เจอ 1 อันแล้วให้หยุดกดทันที
                 end
             end
         end
     end)
+    return foundAndFired
 end
 
--- [ใหม่] ฟังก์ชันจำลองการกด "ปิด" ตู้จดหมาย
+-- [อัปเดต] ฟังก์ชันปิดตู้จดหมายแบบถูกวิธี (จำลองการคลิก X)
 local function closeMailUI()
     pcall(function()
-        -- 1. พยายามหากดปุ่ม กากบาท (X) หรือปุ่ม Close ในหน้าต่าง Mail
         for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
             if obj:IsA("GuiButton") and obj.Visible then
                 local name = obj.Name:lower()
@@ -152,32 +158,22 @@ local function closeMailUI()
                 
                 if name:find("close") or name == "x" or text:find("close") or text == "x" then
                     local ancestor = obj:FindFirstAncestorWhichIsA("ScreenGui")
-                    -- เช็คให้ชัวร์ว่าเป็นหน้าต่างจดหมายเท่านั้น
                     if ancestor and (ancestor.Name:lower():find("mail") or ancestor.Name:lower():find("inbox")) then
                         if firesignal then
                             pcall(function() firesignal(obj.MouseButton1Click) end)
                             pcall(function() firesignal(obj.Activated) end)
                         end
-                        -- จำลองการคลิกเมาส์
+                        -- จำลองการคลิกเมาส์ปุ่มซ้าย
                         pcall(function()
                             local vim = game:GetService("VirtualInputManager")
                             local cx = obj.AbsolutePosition.X + (obj.AbsoluteSize.X / 2)
                             local cy = obj.AbsolutePosition.Y + (obj.AbsoluteSize.Y / 2) + 36
                             vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-                            task.wait(0.05)
+                            task.wait(0.1)
                             vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
                         end)
+                        break -- เจอแล้วกดปิด แล้วหยุดค้นหาทันที
                     end
-                end
-            end
-        end
-        
-        -- 2. ถ้ากดยาก ให้ใช้วิธีซ่อนหน้าต่าง UI ดื้อๆ (Fallback)
-        for _, obj in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
-            if obj:IsA("ScreenGui") then
-                local name = obj.Name:lower()
-                if name:find("mail") or name:find("inbox") then
-                    obj.Enabled = false
                 end
             end
         end
@@ -202,7 +198,7 @@ local SellDelay = Tabs.Main:AddSlider("SellDelay", { Title = "ดีเลย์
 local AutoSell = Tabs.Main:AddToggle("AutoSell", {Title = "เปิด/ปิด Auto Sell All", Default = false})
 
 Tabs.Main:AddSection("✉️ Auto Mail Claim")
-local MailDelay = Tabs.Main:AddSlider("MailDelay", { Title = "ดีเลย์รีเฟรชจดหมาย (รอบใหม่)", Min = 0, Max = 60, Default = 3, Rounding = 1 })
+local MailDelay = Tabs.Main:AddSlider("MailDelay", { Title = "ระยะห่างแต่ละรอบ (วินาที)", Min = 2, Max = 60, Default = 5, Rounding = 1 })
 local AutoMail = Tabs.Main:AddToggle("AutoMail", {Title = "เปิด/ปิด Auto Claim Mail", Default = false})
 
 Tabs.Main:AddSection("💰 Auto Daily Deal")
@@ -254,7 +250,7 @@ task.spawn(function()
     end
 end)
 
--- [อัปเดตแก้ไข] ลูปการรับ Mail แบบ เปิด-ปิด รีเฟรชอัตโนมัติ
+-- ลูปการรับ Mail
 local claimedMails = {}
 AutoMail:OnChanged(function()
     if Options.AutoMail.Value then
@@ -279,9 +275,9 @@ task.spawn(function()
     while task.wait(1) do
         if Options.AutoMail.Value then
             
-            -- [ขั้นที่ 1] บังคับเปิดตู้จดหมายล่องหน
+            -- [ขั้นที่ 1] บังคับเปิดตู้จดหมาย
             forceOpenMailbox()
-            task.wait(1.5) -- รอให้จดหมายล่าสุดโหลดเข้าหน้าต่าง
+            task.wait(1.5) -- รอ 1.5 วินาทีให้จดหมายล่าสุดโหลดเข้าหน้าต่าง
             
             -- [ขั้นที่ 2] สแกนหาจดหมายและรับของ
             pcall(function()
@@ -319,13 +315,13 @@ task.spawn(function()
                 end)
             end
             
-            -- [ขั้นที่ 3] สั่งปิดหน้าต่าง UI ทิ้ง (เพื่อให้รอบต่อไปตัวเกมรีเฟรชข้อมูลใหม่)
+            -- [ขั้นที่ 3] สั่งปิดหน้าต่าง UI ทิ้งให้เกมรับรู้สถานะปกติ
             if Options.AutoMail.Value then
                 closeMailUI()
             end
 
-            -- [ขั้นที่ 4] รอเวลาตาม Slider ก่อนจะเริ่มวงจรการเปิดใหม่
-            local delayToWait = math.max(1, Options.MailDelay.Value)
+            -- [ขั้นที่ 4] รอเวลาพัก (ป้องกันการกดรัวเกินไป)
+            local delayToWait = math.max(2, Options.MailDelay.Value)
             task.wait(delayToWait)
         end
     end
@@ -425,8 +421,8 @@ SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
 Fluent:Notify({
-    Title = "Auto Refresh Mail",
-    Content = "เพิ่มระบบบังคับ ปิด-เปิด ตู้จดหมายเป็นรอบๆ เพื่อรับของล่าสุดได้ตลอดแล้ว",
+    Title = "แก้ไขระบบ Refresh สำเร็จ",
+    Content = "จะเปิด-ปิด-เปิด ได้เรื่อยๆ แล้วครับ ตัวเกมจะไม่รวน",
     Duration = 5
 })
 SaveManager:LoadAutoloadConfig()
