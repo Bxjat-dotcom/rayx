@@ -1,4 +1,26 @@
 repeat task.wait() until game:IsLoaded()
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local duration = 30 -- กำหนดระยะเวลาการทำงานทั้งหมด (วินาที)
+local pressDelay = 1 -- ระยะเวลาหน่วงระหว่างการกดแต่ละครั้ง (วินาที)
+
+local function spamKey()
+    print("เริ่มกดปุ่ม K รัวๆ เป็นเวลา " .. duration .. " วินาที...")
+    local startTime = os.clock()
+    
+    while os.clock() - startTime < duration do
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.K, false, game)
+        task.wait(pressDelay)
+        
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.K, false, game)
+        task.wait(pressDelay)
+    end
+    
+    print("หมดเวลา 30 วินาที หยุดกดปุ่ม K แล้ว")
+end
+
+spamKey()
+
+task.wait(30)
 local PACKET_SEED = 131  
 local PACKET_GEAR = 135  
 local PACKET_SELL = 187  
@@ -13,6 +35,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 local UserInputService = game:GetService("UserInputService")
 local VIM = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser") 
+local Lighting = game:GetService("Lighting")
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -30,7 +53,7 @@ end
 
 local Window = Fluent:CreateWindow({
     Title = "Auto Shop & Mail Hub",
-    SubTitle = "by ChatGPT (Fixed Mail Prefix T&4)",
+    SubTitle = "by ChatGPT (No Blur Edition)",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Theme = "Dark",
@@ -83,6 +106,29 @@ local Tabs = {
 local Options = Fluent.Options
 
 -----------------------------------------------------------------------------
+-- ฟังก์ชันลบ Effect เบลอหน้าจอ
+-----------------------------------------------------------------------------
+local function removeBlur()
+    pcall(function()
+        -- ปิด/ลบ Blur ใน Lighting
+        for _, obj in ipairs(Lighting:GetChildren()) do
+            if obj:IsA("BlurEffect") then
+                obj.Enabled = false
+            end
+        end
+        -- ปิด/ลบ Blur ใน Camera
+        local cam = workspace.CurrentCamera
+        if cam then
+            for _, obj in ipairs(cam:GetChildren()) do
+                if obj:IsA("BlurEffect") then
+                    obj.Enabled = false
+                end
+            end
+        end
+    end)
+end
+
+-----------------------------------------------------------------------------
 -- ฟังก์ชันส่ง Packet 
 -----------------------------------------------------------------------------
 local function buySeed(seedName)
@@ -116,7 +162,6 @@ local function claimDailyDeal()
 end
 
 local function claimMail(mailIdStr)
-    -- อัปเดตแก้บัค: เปลี่ยน Prefix จาก "=&4:" เป็น "T&4:" ตามที่เกมเพิ่งอัปเดตมา
     if not string.match(mailIdStr, "^T&4:") then 
         mailIdStr = "T&4:" .. mailIdStr 
     end
@@ -156,7 +201,6 @@ local function forceOpenMailbox()
                 local action = (obj.ActionText or ""):lower()
                 local objText = (obj.ObjectText or ""):lower()
                 
-                -- ตรวจหาคำว่า mail หรือ inbox
                 if name:find("mail") or name:find("inbox") or action:find("mail") or objText:find("mail") then
                     local oldDist = obj.MaxActivationDistance
                     local oldLOS = obj.RequiresLineOfSight
@@ -331,14 +375,38 @@ task.spawn(function()
         end
     end
 
+    local originalMailPos = nil
+
     while task.wait(1) do
         if Options.AutoMail.Value then
             if isFreshJoin and (tick() - scriptStartTime < 35) then
                 -- รอพ้นช่วงล็อกตอนเข้าเกม
             else
                 forceOpenMailbox()
+                
+                -- ซ่อน UI กล่องจดหมาย และสั่งปิด Effect เบลอหน้าจอ
+                local mailGui
+                pcall(function()
+                    mailGui = LocalPlayer.PlayerGui:FindFirstChild("MailboxUI")
+                    if mailGui then
+                        mailGui.Enabled = false 
+                        if mailGui:FindFirstChild("Frame") then
+                            if not originalMailPos then
+                                originalMailPos = mailGui.Frame.Position
+                            end
+                            mailGui.Frame.Position = UDim2.new(999, 0, 999, 0)
+                        end
+                    end
+                end)
+
+                -- ปิดอาการจอเบลอทันที
+                removeBlur()
+
                 task.wait(1.5)
                 
+                -- ลบเบลอซ้ำอีกรอบเพื่อความชัวร์ เผื่อเกมเพิ่งสั่งเปิด Effect
+                removeBlur()
+
                 pcall(function()
                     for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
                         if not Options.AutoMail.Value then break end
@@ -357,7 +425,20 @@ task.spawn(function()
                     end
                 end)
 
-                if Options.AutoMail.Value then closeMailUI() end
+                if Options.AutoMail.Value then 
+                    pcall(function()
+                        if mailGui then 
+                            if mailGui:FindFirstChild("Frame") and originalMailPos then
+                                mailGui.Frame.Position = originalMailPos
+                            end
+                            mailGui.Enabled = true 
+                        end
+                    end)
+                    
+                    closeMailUI() 
+                    removeBlur() -- ลบเบลอตอนปิดด้วย
+                end
+                
                 task.wait(math.max(2, Options.MailDelay.Value))
             end
         end
