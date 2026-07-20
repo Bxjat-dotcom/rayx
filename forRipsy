@@ -1,3 +1,11 @@
+repeat task.wait() until game:IsLoaded()
+local PACKET_SEED = 131  
+local PACKET_GEAR = 135  
+local PACKET_SELL = 187  
+local PACKET_DAILY = 191 
+local PACKET_MAIL = 52  -- อัปเดตใหม่ (เดิม 38)
+-- ==========================================
+
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
@@ -6,59 +14,45 @@ local UserInputService = game:GetService("UserInputService")
 local VIM = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser") 
 
--- ข้อมูลตัวเกมเบื้องต้น
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Event = game:GetService("ReplicatedStorage"):WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
 
 -----------------------------------------------------------------------------
--- [ระบบตรวจจับว่าเพิ่งเข้าเกมใหม่ หรือ เล่นมาสักพักแล้ว]
+-- [ระบบตรวจจับเข้าเกมใหม่]
 -----------------------------------------------------------------------------
 local scriptStartTime = tick()
 local isFreshJoin = false
 
--- ถ้ารันสคริปต์ตอนเกมยังไม่โหลด หรือตัวละครยังไม่เกิด ถือว่า "เพิ่งเข้าเกมใหม่ (Auto-Execute)"
 if not game:IsLoaded() or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
     isFreshJoin = true
 end
 
 local Window = Fluent:CreateWindow({
     Title = "Auto Shop & Mail Hub",
-    SubTitle = "by ChatGPT (Fixed Mail Bug)",
+    SubTitle = "by ChatGPT (Fixed Mail Prefix T&4)",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.LeftControl 
 })
 
------------------------------------------------------------------------------
--- [ระบบ Auto K] จะทำงานเฉพาะเวลาเพิ่งเข้าเกมใหม่เท่านั้น
------------------------------------------------------------------------------
 if isFreshJoin then
     task.spawn(function()
-        Fluent:Notify({
-            Title = "Auto Start",
-            Content = "ตรวจพบการเข้าเกมใหม่: เริ่มกดปุ่ม K อัตโนมัติ 30 วินาที...",
-            Duration = 5
-        })
-        
-        -- วนลูปกด K จนกว่าเวลาจะผ่านไป 32 วินาที (เผื่อเวลาโหลดนิดหน่อย)
+        Fluent:Notify({ Title = "Auto Start", Content = "เริ่มกดปุ่ม K อัตโนมัติ 30 วินาที...", Duration = 5 })
         while tick() - scriptStartTime < 32 do
             VIM:SendKeyEvent(true, Enum.KeyCode.K, false, game)
             task.wait(0.1)
             VIM:SendKeyEvent(false, Enum.KeyCode.K, false, game)
             task.wait(0.9)
         end
-        
-        Fluent:Notify({
-            Title = "Auto Start",
-            Content = "หน้าโหลดเสร็จสิ้น ระบบ Auto Mail พร้อมทำงาน",
-            Duration = 5
-        })
+        Fluent:Notify({ Title = "Auto Start", Content = "หน้าโหลดเสร็จสิ้น", Duration = 5 })
     end)
 end
------------------------------------------------------------------------------
 
+-----------------------------------------------------------------------------
+-- ข้อมูลไอเทม
+-----------------------------------------------------------------------------
 local allSeeds = {
     "Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", 
     "Apple", "Bamboo", "Corn", "Cactus", "Pineapple", 
@@ -89,10 +83,10 @@ local Tabs = {
 local Options = Fluent.Options
 
 -----------------------------------------------------------------------------
--- ฟังก์ชันหลังบ้าน
+-- ฟังก์ชันส่ง Packet 
 -----------------------------------------------------------------------------
 local function buySeed(seedName)
-    local bytes = {123, 0, string.len(seedName)}
+    local bytes = {PACKET_SEED, 0, string.len(seedName)}
     for i = 1, string.len(seedName) do table.insert(bytes, string.byte(seedName, i)) end
     local b = buffer.create(#bytes)
     for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
@@ -100,38 +94,42 @@ local function buySeed(seedName)
 end
 
 local function buyGear(itemName)
-    local bytes = {127, 0, string.len(itemName)}
+    local bytes = {PACKET_GEAR, 0, string.len(itemName)}
     for i = 1, string.len(itemName) do table.insert(bytes, string.byte(itemName, i)) end
     local b = buffer.create(#bytes)
     for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
     Event:FireServer(b)
 end
 
+local function sellAll()
+    local bytes = { PACKET_SELL, 0, 25 }
+    local b = buffer.create(#bytes)
+    for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
+    Event:FireServer(b)
+end
+
 local function claimDailyDeal()
-    local bytes = { 183, 0, 29 }
+    local bytes = { PACKET_DAILY, 0, 35 } 
     local b = buffer.create(#bytes)
     for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
     Event:FireServer(b)
 end
 
 local function claimMail(mailIdStr)
-    if not string.match(mailIdStr, "^=&4:") then
-        mailIdStr = "=&4:" .. mailIdStr
+    -- อัปเดตแก้บัค: เปลี่ยน Prefix จาก "=&4:" เป็น "T&4:" ตามที่เกมเพิ่งอัปเดตมา
+    if not string.match(mailIdStr, "^T&4:") then 
+        mailIdStr = "T&4:" .. mailIdStr 
     end
-    local bytes = {38, 1}
+    local bytes = {PACKET_MAIL, 1}
     for i = 1, string.len(mailIdStr) do table.insert(bytes, string.byte(mailIdStr, i)) end
     local b = buffer.create(#bytes)
     for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
     Event:FireServer(b)
 end
 
-local function sellAll()
-    local bytes = { 179, 0, 116 }
-    local b = buffer.create(#bytes)
-    for i = 1, #bytes do buffer.writeu8(b, i - 1, bytes[i]) end
-    Event:FireServer(b)
-end
-
+-----------------------------------------------------------------------------
+-- ส่วนการจัดการ UI เมล & Anti-AFK
+-----------------------------------------------------------------------------
 local antiAfkConnection
 local function toggleAntiAFK(state)
     if state then
@@ -158,17 +156,24 @@ local function forceOpenMailbox()
                 local action = (obj.ActionText or ""):lower()
                 local objText = (obj.ObjectText or ""):lower()
                 
-                if name:find("mail") or action:find("mail") or objText:find("mail") or name:find("inbox") then
+                -- ตรวจหาคำว่า mail หรือ inbox
+                if name:find("mail") or name:find("inbox") or action:find("mail") or objText:find("mail") then
                     local oldDist = obj.MaxActivationDistance
                     local oldLOS = obj.RequiresLineOfSight
                     
                     obj.MaxActivationDistance = 999999
-                    obj.RequiresLineOfSight = false
+                    obj.RequiresLineOfSight = false 
                     
-                    if fireproximityprompt then fireproximityprompt(obj, 1) end
+                    task.wait(0.1)
+                    if fireproximityprompt then 
+                        fireproximityprompt(obj, 1) 
+                        fireproximityprompt(obj, 0)
+                    end
                     
-                    obj.MaxActivationDistance = oldDist
-                    obj.RequiresLineOfSight = oldLOS
+                    task.delay(1, function()
+                        obj.MaxActivationDistance = oldDist
+                        obj.RequiresLineOfSight = oldLOS
+                    end)
                     
                     foundAndFired = true
                     break
@@ -191,27 +196,13 @@ local function closeMailUI()
         local gui = LocalPlayer.PlayerGui:FindFirstChild("MailboxUI")
         if gui and gui:FindFirstChild("Frame") and gui.Frame:FindFirstChild("Header") and gui.Frame.Header:FindFirstChild("ExitButton") then
             local exitBtn = gui.Frame.Header.ExitButton
-            
-            local fakeInputBegin = {UserInputType = Enum.UserInputType.MouseButton1, UserInputState = Enum.UserInputState.Begin}
-            local fakeInputEnd = {UserInputType = Enum.UserInputType.MouseButton1, UserInputState = Enum.UserInputState.End}
-
             if getconnections then
-                for _, conn in pairs(getconnections(exitBtn.InputBegan)) do
-                    pcall(function() conn:Fire(fakeInputBegin) end)
-                end
-                task.wait(0.05)
-                for _, conn in pairs(getconnections(exitBtn.InputEnded)) do
-                    pcall(function() conn:Fire(fakeInputEnd) end)
-                end
                 for _, conn in pairs(getconnections(exitBtn.Activated)) do pcall(function() conn:Fire() end) end
                 for _, conn in pairs(getconnections(exitBtn.MouseButton1Click)) do pcall(function() conn:Fire() end) end
             else
-                local guiService = game:GetService("GuiService")
-                local inset = guiService:GetGuiInset() 
-                
+                local inset = game:GetService("GuiService"):GetGuiInset() 
                 local cx = exitBtn.AbsolutePosition.X + (exitBtn.AbsoluteSize.X / 2) + inset.X
                 local cy = exitBtn.AbsolutePosition.Y + (exitBtn.AbsoluteSize.Y / 2) + inset.Y
-                
                 VIM:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
                 task.wait(0.05)
                 VIM:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
@@ -221,39 +212,73 @@ local function closeMailUI()
 end
 
 -----------------------------------------------------------------------------
--- ส่วน UI
+-- สร้างหน้าต่าง UI
 -----------------------------------------------------------------------------
 Tabs.Main:AddSection("🌾 Auto Seed Shop")
-local SeedDropdown = Tabs.Main:AddDropdown("SeedSelect", { Title = "เลือกเมล็ดพันธุ์", Values = allSeeds, Multi = true, Default = {} })
-local SeedDelay = Tabs.Main:AddSlider("SeedDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 10, Default = 0.2, Rounding = 1 })
-local AutoSeed = Tabs.Main:AddToggle("AutoSeed", {Title = "เปิด/ปิด Auto Buy Seeds", Default = false})
+Tabs.Main:AddDropdown("SeedSelect", { Title = "เลือกเมล็ดพันธุ์", Values = allSeeds, Multi = true, Default = {} })
+Tabs.Main:AddSlider("SeedDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 10, Default = 0.2, Rounding = 1 })
+Tabs.Main:AddToggle("AutoSeed", {Title = "เปิด/ปิด Auto Buy Seeds", Default = false})
 
 Tabs.Main:AddSection("⚙️ Auto Gear Shop")
-local GearDropdown = Tabs.Main:AddDropdown("GearSelect", { Title = "เลือกอุปกรณ์", Values = allGears, Multi = true, Default = {} })
-local GearDelay = Tabs.Main:AddSlider("GearDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 10, Default = 0.2, Rounding = 1 })
-local AutoGear = Tabs.Main:AddToggle("AutoGear", {Title = "เปิด/ปิด Auto Buy Gears", Default = false})
+Tabs.Main:AddDropdown("GearSelect", { Title = "เลือกอุปกรณ์", Values = allGears, Multi = true, Default = {} })
+Tabs.Main:AddSlider("GearDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 10, Default = 0.2, Rounding = 1 })
+Tabs.Main:AddToggle("AutoGear", {Title = "เปิด/ปิด Auto Buy Gears", Default = false})
 
 Tabs.Main:AddSection("🛒 Auto Sell All")
-local SellDelay = Tabs.Main:AddSlider("SellDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 60, Default = 5, Rounding = 1 })
-local AutoSell = Tabs.Main:AddToggle("AutoSell", {Title = "เปิด/ปิด Auto Sell All", Default = false})
+Tabs.Main:AddSlider("SellDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 60, Default = 5, Rounding = 1 })
+Tabs.Main:AddToggle("AutoSell", {Title = "เปิด/ปิด Auto Sell All", Default = false})
 
 Tabs.Main:AddSection("✉️ Auto Mail Claim")
-local MailDelay = Tabs.Main:AddSlider("MailDelay", { Title = "ระยะห่างแต่ละรอบ (วินาที)", Min = 2, Max = 60, Default = 5, Rounding = 1 })
-local AutoMail = Tabs.Main:AddToggle("AutoMail", {Title = "เปิด/ปิด Auto Claim Mail", Default = false})
+Tabs.Main:AddSlider("MailDelay", { Title = "ระยะห่างแต่ละรอบ (วินาที)", Min = 2, Max = 60, Default = 5, Rounding = 1 })
+Tabs.Main:AddToggle("AutoMail", {Title = "เปิด/ปิด Auto Claim Mail", Default = false})
 
 Tabs.Main:AddSection("💰 Auto Daily Deal")
-local DailyDelay = Tabs.Main:AddSlider("DailyDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 60, Default = 5, Rounding = 1 })
-local AutoDaily = Tabs.Main:AddToggle("AutoDaily", {Title = "เปิด/ปิด Auto Daily Deal", Default = false})
+Tabs.Main:AddSlider("DailyDelay", { Title = "ดีเลย์ (วินาที)", Min = 0, Max = 60, Default = 5, Rounding = 1 })
+Tabs.Main:AddToggle("AutoDaily", {Title = "เปิด/ปิด Auto Daily Deal", Default = false})
 
 Tabs.Settings:AddSection("🛡️ Anti-AFK")
-local AntiAFKToggle = Tabs.Settings:AddToggle("AntiAFK", {Title = "เปิด/ปิด Anti-AFK", Default = false})
-
-AntiAFKToggle:OnChanged(function()
+Tabs.Settings:AddToggle("AntiAFK", {Title = "เปิด/ปิด Anti-AFK", Default = false}):OnChanged(function()
     toggleAntiAFK(Options.AntiAFK.Value)
 end)
 
+Tabs.Settings:AddSection("🔍 ค้นหารหัส Packet (เมื่อเกมอัปเดต)")
+Tabs.Settings:AddParagraph({
+    Title = "วิธีหาโค้ดที่อัปเดตใหม่",
+    Content = "กดเปิดสแกน -> ไปซื้อ/ขายของด้วยตัวเอง 1 ครั้ง -> แจ้งเตือนจะบอกตัวเลข Packet ID -> นำไปเปลี่ยนในโค้ดบรรทัดบนสุด"
+})
+Tabs.Settings:AddToggle("SpyPacket", {Title = "เปิดสแกน Packet ID", Default = false})
+
 -----------------------------------------------------------------------------
--- ลูปการทำงาน (Loops)
+-- ระบบดักจับโค้ด (Packet Hooking Spy)
+-----------------------------------------------------------------------------
+pcall(function()
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        if getnamecallmethod() == "FireServer" and self.Name == "RemoteEvent" then
+            local args = {...}
+            if Options and Options.SpyPacket and Options.SpyPacket.Value then
+                if typeof(args[1]) == "buffer" then
+                    pcall(function()
+                        local b = args[1]
+                        if buffer.len(b) > 0 then
+                            local id = buffer.readu8(b, 0)
+                            Fluent:Notify({
+                                Title = "📡 พบ Packet ID ใหม่!",
+                                Content = "รหัสที่ส่งไปคือ: " .. tostring(id),
+                                Duration = 8
+                            })
+                            print("📡 [Packet Spy] ID:", id)
+                        end
+                    end)
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+end)
+
+-----------------------------------------------------------------------------
+-- ลูปทำงานหลัก
 -----------------------------------------------------------------------------
 task.spawn(function()
     while task.wait() do
@@ -291,15 +316,12 @@ task.spawn(function()
 end)
 
 local claimedMails = {}
-AutoMail:OnChanged(function()
-    if Options.AutoMail.Value then
-        claimedMails = {}
-    end
+Options.AutoMail:OnChanged(function()
+    if Options.AutoMail.Value then claimedMails = {} end
 end)
 
 task.spawn(function()
     local uuidPattern = "%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x"
-    
     local function checkAndClaim(str)
         if type(str) ~= "string" then return end
         local match = string.match(str, uuidPattern)
@@ -309,17 +331,11 @@ task.spawn(function()
         end
     end
 
-    local lastGCScan = 0
-
     while task.wait(1) do
         if Options.AutoMail.Value then
-            
-            -- [ส่วนแก้อาการบัค UI เมลค้างตอนเปิดออโต้]
-            -- ถ้าเพิ่งเข้าเกมใหม่ และเวลาผ่านไปไม่ถึง 35 วินาที -> ให้ข้ามรอบไปก่อน ไม่ต้องทำอะไร
             if isFreshJoin and (tick() - scriptStartTime < 35) then
-                -- จะไม่โหลด UI เมล ทำให้ไม่เกิดอาการบัคซ้อนทับ
+                -- รอพ้นช่วงล็อกตอนเข้าเกม
             else
-                -- ถ้าเกิน 35 วินาทีแล้ว (หรือรันตอนอยู่ในเกมนานแล้ว) ให้เริ่มเปิด UI เมลตามปกติ
                 forceOpenMailbox()
                 task.wait(1.5)
                 
@@ -341,29 +357,8 @@ task.spawn(function()
                     end
                 end)
 
-                if tick() - lastGCScan > 10 then
-                    lastGCScan = tick()
-                    pcall(function()
-                        for _, v in ipairs(getgc(true)) do
-                            if not Options.AutoMail.Value then break end
-                            if type(v) == "table" then
-                                pcall(function()
-                                    for key, val in pairs(v) do
-                                        if type(key) == "string" and #key >= 36 then checkAndClaim(key) end
-                                        if type(val) == "string" and #val >= 36 then checkAndClaim(val) end
-                                    end
-                                end)
-                            end
-                        end
-                    end)
-                end
-                
-                if Options.AutoMail.Value then
-                    closeMailUI()
-                end
-
-                local delayToWait = math.max(2, Options.MailDelay.Value)
-                task.wait(delayToWait)
+                if Options.AutoMail.Value then closeMailUI() end
+                task.wait(math.max(2, Options.MailDelay.Value))
             end
         end
     end
@@ -379,7 +374,7 @@ task.spawn(function()
 end)
 
 -----------------------------------------------------------------------------
--- สร้างปุ่ม Mini Size
+-- สร้างปุ่ม Mini Size UI
 -----------------------------------------------------------------------------
 local coreGui = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
 local MiniGui = Instance.new("ScreenGui")
@@ -414,28 +409,20 @@ ToggleBtn.InputBegan:Connect(function(input)
         dragStart = input.Position
         startPos = ToggleBtn.Position
         startClickPos = input.Position
-        
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
         end)
     end
 end)
 
 ToggleBtn.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
     if input == dragInput and dragging then
         local delta = input.Position - dragStart
-        ToggleBtn.Position = UDim2.new(
-            startPos.X.Scale, startPos.X.Offset + delta.X, 
-            startPos.Y.Scale, startPos.Y.Offset + delta.Y
-        )
+        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
 end)
 
@@ -449,9 +436,6 @@ ToggleBtn.InputEnded:Connect(function(input)
     end
 end)
 
------------------------------------------------------------------------------
--- ตั้งค่า SaveManager & InterfaceManager
------------------------------------------------------------------------------
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
 SaveManager:IgnoreThemeSettings()
