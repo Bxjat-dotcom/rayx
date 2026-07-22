@@ -21,11 +21,11 @@ end
 spamKey()
 
 task.wait(30)
-local PACKET_SEED = 131  
-local PACKET_GEAR = 135  
-local PACKET_SELL = 187  
-local PACKET_DAILY = 191 
-local PACKET_MAIL = 52  -- อัปเดตใหม่ (เดิม 38)
+local PACKET_SEED = 132  
+local PACKET_GEAR = 136  
+local PACKET_SELL = 188  
+local PACKET_DAILY = 189 
+local PACKET_MAIL = 53  -- อัปเดตใหม่ (เดิม 38)
 -- ==========================================
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
