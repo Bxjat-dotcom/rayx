@@ -24,7 +24,7 @@ task.wait(30)
 local PACKET_SEED = 132  
 local PACKET_GEAR = 136  
 local PACKET_SELL = 188  
-local PACKET_DAILY = 189 
+local PACKET_DAILY = 192 
 local PACKET_MAIL = 53  -- อัปเดตใหม่ (เดิม 38)
 -- ==========================================
 
